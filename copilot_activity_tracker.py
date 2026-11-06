@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlparse
 
 DEFAULT_WORKSPACE = Path(__file__).resolve().parent
 COPILOT_SESSION_STATE = Path.home() / ".copilot" / "session-state"
@@ -41,19 +42,95 @@ def timestamp(value: Any = None) -> str:
     return moment.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def emit(message: str, display: Callable[[str], None] | None = None) -> None:
-    formatted = f"[{timestamp()}] {message}"
+def emit(
+    message: str,
+    display: Callable[[str], None] | None = None,
+    event_timestamp: Any = None,
+) -> None:
+    formatted = f"[{timestamp(event_timestamp)}] {message}"
     print(formatted, flush=True)
     if display is not None:
         display(formatted)
 
 
-def find_latest_debug_log() -> Path | None:
+def workspace_from_storage(storage_directory: Path) -> Path | None:
+    metadata = storage_directory / "workspace.json"
+    try:
+        data = json.loads(metadata.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    folder_uri = data.get("folder")
+    if not isinstance(folder_uri, str):
+        return None
+    parsed = urlparse(folder_uri)
+    if parsed.scheme != "file":
+        return None
+    path = unquote(parsed.path)
+    if parsed.netloc:
+        path = f"//{parsed.netloc}{path}"
+    try:
+        return Path(path).expanduser().resolve()
+    except OSError:
+        return None
+
+
+def workspace_storage_directories(workspace: Path) -> list[Path]:
+    if not VSCODE_STORAGE.is_dir():
+        return []
+    try:
+        resolved_workspace = workspace.resolve()
+    except OSError:
+        return []
+    return [
+        storage
+        for storage in VSCODE_STORAGE.iterdir()
+        if storage.is_dir() and workspace_from_storage(storage) == resolved_workspace
+    ]
+
+
+def find_latest_vscode_workspace() -> Path | None:
     if not VSCODE_STORAGE.is_dir():
         return None
 
-    candidates = VSCODE_STORAGE.glob(
-        "*/GitHub.copilot-chat/debug-logs/*/main.jsonl"
+    logged_workspaces: list[tuple[int, Path]] = []
+    other_workspaces: list[tuple[int, Path]] = []
+    for storage in VSCODE_STORAGE.iterdir():
+        workspace = workspace_from_storage(storage)
+        if workspace is None or not workspace.is_dir():
+            continue
+        logs = (
+            storage
+            / "GitHub.copilot-chat"
+            / "debug-logs"
+        ).glob("*/main.jsonl")
+        log_times: list[int] = []
+        for path in logs:
+            try:
+                log_times.append(path.stat().st_mtime_ns)
+            except OSError:
+                continue
+        try:
+            if log_times:
+                logged_workspaces.append((max(log_times), workspace))
+            else:
+                metadata_time = (storage / "workspace.json").stat().st_mtime_ns
+                other_workspaces.append((metadata_time, workspace))
+        except OSError:
+            continue
+    candidates = logged_workspaces or other_workspaces
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[0])[1]
+
+
+def find_latest_debug_log(workspace: Path) -> Path | None:
+    candidates = (
+        log
+        for storage in workspace_storage_directories(workspace)
+        for log in (
+            storage / "GitHub.copilot-chat" / "debug-logs"
+        ).glob("*/main.jsonl")
     )
     existing: list[tuple[int, Path]] = []
     for path in candidates:
@@ -94,6 +171,24 @@ def find_latest_session_log(workspace: Path) -> Path | None:
             continue
         try:
             candidates.append((path.stat().st_mtime_ns, path))
+        except OSError:
+            continue
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[0])[1]
+
+
+def find_latest_session_workspace() -> Path | None:
+    if not COPILOT_SESSION_STATE.is_dir():
+        return None
+
+    candidates: list[tuple[int, Path]] = []
+    for path in COPILOT_SESSION_STATE.glob("*/events.jsonl"):
+        workspace = session_workspace(path.parent)
+        if workspace is None or not workspace.is_dir():
+            continue
+        try:
+            candidates.append((path.stat().st_mtime_ns, workspace))
         except OSError:
             continue
     if not candidates:
@@ -193,7 +288,25 @@ def describe_log_record(record: dict[str, Any]) -> str:
         parts.append(f"status={status}")
     if isinstance(duration, (int, float)):
         parts.append(f"duration={duration}ms")
-    return "Copilot 日志事件（不含正文）: " + " ".join(parts)
+    return "VS Code Copilot 调试事件（仅元数据）: " + " ".join(parts)
+
+
+def debug_log_activity(record: dict[str, Any]) -> tuple[str, str] | None:
+    event_type = safe_label(record.get("type")) or ""
+    name = safe_label(record.get("name")) or ""
+    if event_type == "session_start":
+        return None
+
+    label = name or event_type
+    normalized = f"{event_type} {name}".casefold()
+    if any(token in normalized for token in ("tool", "command", "function")):
+        return "window", f"VS Code Copilot 日志显示正在执行 {label}"
+    if any(
+        token in normalized
+        for token in ("request", "response", "assistant", "chat", "completion")
+    ):
+        return "writing", f"VS Code Copilot 日志显示正在处理 {label}"
+    return None
 
 
 def describe_session_record(
@@ -275,13 +388,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workspace",
         type=Path,
-        default=DEFAULT_WORKSPACE,
-        help=f"要观察的工作区目录（默认：{DEFAULT_WORKSPACE}）",
+        help="要观察的工作区目录（默认：最近的 Copilot 会话工作区）",
     )
     parser.add_argument(
         "--debug-log",
         type=Path,
-        help="指定 Copilot main.jsonl；默认自动选择最近更新的日志",
+        help="指定 Copilot main.jsonl；默认仅选择此工作区对应的最新日志",
     )
     parser.add_argument(
         "--session-log",
@@ -820,7 +932,7 @@ def initialize_monitor(
     current_log = (
         args.debug_log.expanduser().resolve()
         if args.debug_log
-        else find_latest_debug_log()
+        else find_latest_debug_log(workspace)
     )
     log_offset = 0
     if current_log is not None:
@@ -847,9 +959,12 @@ def initialize_monitor(
         display,
     )
     if current_log:
-        emit(f"Copilot 日志: {current_log}", display)
+        emit(f"此工作区的 VS Code Copilot 日志: {current_log}", display)
     else:
-        emit("尚未发现 Copilot 日志；等待新日志出现", display)
+        emit(
+            "尚未发现此工作区的 VS Code Copilot 调试日志；等待日志出现",
+            display,
+        )
     if current_session_log:
         emit(f"Copilot 会话事件: {current_session_log}", display)
     else:
@@ -880,13 +995,16 @@ def poll_monitor(
     candidate = (
         args.debug_log.expanduser().resolve()
         if args.debug_log
-        else find_latest_debug_log()
+        else find_latest_debug_log(workspace)
     )
     if candidate != state.current_log:
         state.current_log = candidate
         state.log_offset = 0
         if state.current_log:
-            emit(f"切换到 Copilot 日志: {state.current_log}", display)
+            emit(
+                f"切换到此工作区的 VS Code Copilot 日志: {state.current_log}",
+                display,
+            )
 
     if state.current_log:
         try:
@@ -897,7 +1015,10 @@ def poll_monitor(
                 state.current_log, state.log_offset
             )
             for record in records:
-                emit(describe_log_record(record), display)
+                emit(describe_log_record(record), display, record.get("ts"))
+                status = debug_log_activity(record)
+                if status is not None and activity is not None:
+                    activity(*status)
         except OSError:
             pass
 
@@ -942,7 +1063,15 @@ def poll_monitor(
 
 def main() -> int:
     args = parse_args()
-    workspace = args.workspace.expanduser().resolve()
+    workspace = (
+        args.workspace.expanduser().resolve()
+        if args.workspace
+        else (
+            find_latest_session_workspace()
+            or find_latest_vscode_workspace()
+            or DEFAULT_WORKSPACE
+        )
+    )
     if not args.no_files and not workspace.is_dir():
         print(f"工作区目录不存在: {workspace}", file=sys.stderr)
         return 2
