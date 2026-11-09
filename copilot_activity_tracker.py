@@ -354,7 +354,7 @@ def session_activity(record: dict[str, Any]) -> tuple[str, str] | None:
     if event_type == "user.message":
         return "alert", "收到新请求，等待 Copilot 处理"
     if event_type == "assistant.turn_start":
-        return "toilet", "Copilot 正在处理当前请求"
+        return "eating", "Copilot 正在处理当前请求，核桃低头吃饭"
     if event_type == "assistant.turn_end":
         return "groom", "Copilot 已完成本轮处理"
     if event_type == "assistant.message":
@@ -373,8 +373,10 @@ def session_activity(record: dict[str, Any]) -> tuple[str, str] | None:
         return "window", f"Copilot 正在{action}"
     if event_type == "tool.execution_complete":
         if data.get("success") is True:
-            return "celebrate", "工具执行成功，Copilot 继续处理"
-        return "surprised", "工具执行失败，Copilot 正在调整"
+            return "toilet", "工具执行完成，核桃去猫砂盆"
+        if data.get("success") is False:
+            return "toilet", "工具执行失败，核桃去猫砂盆"
+        return "toilet", "工具调用结束，核桃去猫砂盆"
     return None
 
 
@@ -424,6 +426,8 @@ def parse_args() -> argparse.Namespace:
 
 def create_cat_animation_widget(
     QWidget: Any,
+    QLabel: Any,
+    Qt: Any,
     QColor: Any,
     QPainter: Any,
     QTimer: Any,
@@ -436,10 +440,56 @@ def create_cat_animation_widget(
             self.frame = 0
             self.started_at = time.monotonic()
             self.pending_moods: list[str] = []
+            self.summary_visible = True
+            self.summary_overlay = QLabel("等待 Copilot 活动", self)
+            self.summary_overlay.setWordWrap(True)
+            self.summary_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.summary_overlay.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents
+            )
+            self.summary_overlay.setAttribute(
+                Qt.WidgetAttribute.WA_StyledBackground
+            )
+            self.summary_overlay.setStyleSheet(
+                "color: #fffaf0; background-color: rgba(42, 42, 57, 190); "
+                "border: 1px solid rgba(255, 245, 232, 90); "
+                "border-radius: 8px; padding: 5px 10px; font-size: 13px;"
+            )
+            self.summary_overlay.show()
             self.setMinimumSize(120, 82)
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.animate)
             self.timer.start(180)
+            self.position_summary_overlay()
+
+        def set_summary(self, summary: str) -> None:
+            self.summary_overlay.setText(summary)
+            self.position_summary_overlay()
+            if self.summary_visible:
+                self.summary_overlay.show()
+
+        def set_summary_visible(self, visible: bool) -> None:
+            self.summary_visible = visible
+            self.summary_overlay.setVisible(visible)
+            if visible:
+                self.position_summary_overlay()
+
+        def position_summary_overlay(self) -> None:
+            if self.width() <= 0 or self.height() <= 0:
+                return
+            margin = min(12, max(6, self.width() // 10))
+            self.summary_overlay.setMaximumWidth(self.width() - 2 * margin)
+            self.summary_overlay.setMaximumHeight(max(32, self.height() // 3))
+            self.summary_overlay.adjustSize()
+            self.summary_overlay.move(
+                max(0, (self.width() - self.summary_overlay.width()) // 2),
+                8,
+            )
+            self.summary_overlay.raise_()
+
+        def resizeEvent(self, event: Any) -> None:
+            super().resizeEvent(event)
+            self.position_summary_overlay()
 
         def queue_activity(self, mood: str) -> None:
             if mood == self.mood and not self.pending_moods:
@@ -471,9 +521,9 @@ def create_cat_animation_widget(
             painter.fillRect(x, y, width, height, QColor(color))
 
         def draw_cat(self, painter: Any, x: int, y: int, mood: str) -> None:
-            fur = "#b8794e"
-            dark = "#382b34"
-            stripe = "#704438"
+            fur = "#70716d"
+            dark = "#2d2d32"
+            stripe = "#464448"
             wiggle = (self.frame % 3) * 2
             self.fill_rect(painter, x, y + 26, 8, 6, dark)
             self.fill_rect(painter, x - 2 + wiggle, y + 20, 6, 8, dark)
@@ -482,20 +532,34 @@ def create_cat_animation_widget(
 
             self.fill_rect(painter, x + 8, y, 8, 12, dark)
             self.fill_rect(painter, x + 28, y, 8, 12, dark)
-            self.fill_rect(painter, x + 10, y + 4, 4, 6, "#d89a68")
-            self.fill_rect(painter, x + 30, y + 4, 4, 6, "#d89a68")
+            self.fill_rect(painter, x + 10, y + 4, 4, 6, "#a8947e")
+            self.fill_rect(painter, x + 30, y + 4, 4, 6, "#a8947e")
             self.fill_rect(painter, x + 6, y + 8, 32, 18, dark)
             self.fill_rect(painter, x + 8, y + 10, 28, 14, fur)
             self.fill_rect(painter, x + 12, y + 8, 4, 4, stripe)
-            self.fill_rect(painter, x + 22, y + 8, 4, 4, stripe)
+            self.fill_rect(painter, x + 20, y + 8, 4, 7, stripe)
             self.fill_rect(painter, x + 30, y + 12, 4, 4, stripe)
-            self.fill_rect(painter, x + 14, y + 18, 12, 4, "#e5bc91")
+            self.fill_rect(painter, x + 13, y + 14, 7, 6, "#b8b66c")
+            self.fill_rect(painter, x + 26, y + 14, 7, 6, "#b8b66c")
+            self.fill_rect(painter, x + 16, y + 14, 3, 6, dark)
+            self.fill_rect(painter, x + 28, y + 14, 3, 6, dark)
+            self.fill_rect(painter, x + 14, y + 19, 16, 5, "#f2eee6")
+            self.fill_rect(painter, x + 20, y + 19, 4, 3, "#d88780")
+            self.fill_rect(painter, x + 8, y + 21, 6, 1, "#f2eee6")
+            self.fill_rect(painter, x + 30, y + 21, 6, 1, "#f2eee6")
 
             self.fill_rect(painter, x + 4, y + 22, 36, 28, dark)
             self.fill_rect(painter, x + 6, y + 24, 32, 24, fur)
-            self.fill_rect(painter, x + 8, y + 28, 6, 4, stripe)
-            self.fill_rect(painter, x + 30, y + 26, 6, 4, stripe)
-            self.fill_rect(painter, x + 16, y + 32, 8, 4, stripe)
+            for stripe_x, stripe_y, width, height in (
+                (8, 28, 6, 5),
+                (17, 26, 5, 7),
+                (28, 27, 7, 5),
+                (12, 36, 5, 4),
+                (25, 34, 6, 5),
+            ):
+                self.fill_rect(
+                    painter, x + stripe_x, y + stripe_y, width, height, stripe
+                )
 
             self.fill_rect(painter, x + 8, y + 22, 28, 4, "#fff5e8")
             self.fill_rect(painter, x + 12, y + 26, 20, 4, "#fff5e8")
@@ -560,75 +624,174 @@ def create_cat_animation_widget(
             self.fill_rect(painter, 28, 27, 2, 2, "#f5df9a")
             self.fill_rect(painter, 0, 76, 160, 34, "#715448")
             self.fill_rect(painter, 37, 67, 86, 27, "#382b34")
-            self.fill_rect(painter, 41, 63, 78, 28, "#b8794e")
+            self.fill_rect(painter, 41, 63, 78, 28, "#d4b35e")
             self.fill_rect(painter, 47, 66, 66, 20, "#eed7b8")
 
-            breath = (self.frame // 5) % 2 * 2
+            breath = (self.frame // 5) % 2
             for x, y, width, height in (
-                (66, 46, 28, 8),
-                (58, 50, 48, 8),
-                (52, 58, 60, 14),
-                (58, 72, 48, 10),
-                (70, 80, 24, 4),
+                (72, 40, 32, 8),
+                (60, 44, 56, 8),
+                (50, 52, 76, 10),
+                (44, 62, 88, 12),
+                (48, 74, 80, 10),
+                (58, 84, 62, 8),
+                (72, 90, 36, 5),
             ):
-                self.fill_rect(painter, x, y + breath, width, height, "#382b34")
+                self.fill_rect(painter, x, y + breath, width, height, "#2d2d32")
             for x, y, width, height in (
-                (68, 48, 24, 6),
-                (62, 52, 42, 6),
-                (56, 60, 52, 10),
-                (62, 72, 40, 8),
-                (72, 80, 20, 2),
+                (76, 42, 24, 4),
+                (64, 46, 48, 5),
+                (54, 54, 68, 6),
+                (50, 64, 76, 8),
+                (54, 74, 68, 6),
+                (62, 82, 52, 6),
+                (76, 88, 28, 4),
             ):
-                self.fill_rect(painter, x, y + breath, width, height, "#b8794e")
+                self.fill_rect(painter, x, y + breath, width, height, "#70716d")
+            for x, y, width, height in (
+                (65, 48, 5, 7),
+                (78, 46, 4, 7),
+                (94, 50, 5, 7),
+                (109, 55, 4, 7),
+                (54, 62, 5, 7),
+                (73, 60, 4, 6),
+                (96, 63, 5, 7),
+                (115, 67, 4, 6),
+                (63, 75, 5, 6),
+                (85, 74, 4, 6),
+            ):
+                self.fill_rect(painter, x, y + breath, width, height, "#464448")
 
+            tail_wiggle = (self.frame // 4) % 2
             for x, y, width, height in (
-                (70, 56, 4, 8),
-                (88, 54, 4, 8),
-                (102, 56, 4, 10),
-                (66, 66, 8, 4),
-                (88, 70, 8, 4),
-            ):
-                self.fill_rect(painter, x, y + breath, width, height, "#704438")
-            self.fill_rect(painter, 76, 64 + breath, 20, 8, "#e5bc91")
-
-            tail_wiggle = (self.frame // 4) % 2 * 2
-            for x, y, width, height in (
-                (102, 56, 10, 8),
-                (108, 64, 10, 8),
-                (104, 72, 12, 8),
-                (92, 78, 16, 6),
+                (106, 68, 14, 8),
+                (112, 74, 14, 8),
+                (106, 82, 18, 8),
+                (92, 87, 22, 6),
             ):
                 self.fill_rect(
-                    painter, x, y + tail_wiggle, width, height, "#382b34"
+                    painter, x, y + tail_wiggle, width, height, "#2d2d32"
                 )
-            self.fill_rect(painter, 104, 58 + tail_wiggle, 6, 6, "#b8794e")
-            self.fill_rect(painter, 110, 66 + tail_wiggle, 6, 4, "#b8794e")
-            self.fill_rect(painter, 104, 74 + tail_wiggle, 8, 4, "#704438")
+            for x, y, width, height in (
+                (108, 70, 10, 4),
+                (116, 76, 8, 4),
+                (109, 84, 11, 4),
+                (96, 88, 14, 3),
+            ):
+                self.fill_rect(
+                    painter, x, y + tail_wiggle, width, height, "#70716d"
+                )
+            self.fill_rect(painter, 112, 74 + tail_wiggle, 4, 4, "#464448")
+            self.fill_rect(painter, 116, 82 + tail_wiggle, 5, 4, "#464448")
 
             head_y = 56 + breath
-            self.fill_rect(painter, 48, head_y - 6, 8, 12, "#382b34")
-            self.fill_rect(painter, 64, head_y - 4, 8, 10, "#382b34")
-            self.fill_rect(painter, 50, head_y - 2, 4, 6, "#d89a68")
-            self.fill_rect(painter, 66, head_y - 2, 4, 4, "#d89a68")
-            self.fill_rect(painter, 46, head_y, 30, 20, "#382b34")
-            self.fill_rect(painter, 50, head_y + 2, 24, 14, "#b8794e")
-            self.fill_rect(painter, 54, head_y, 4, 4, "#704438")
-            self.fill_rect(painter, 64, head_y + 2, 4, 4, "#704438")
-            self.fill_rect(painter, 50, head_y + 10, 8, 2, "#382b34")
-            self.fill_rect(painter, 62, head_y + 10, 8, 2, "#382b34")
-            self.fill_rect(painter, 44, head_y + 12, 10, 6, "#fff5e8")
-            self.fill_rect(painter, 54, head_y + 14, 10, 4, "#fff5e8")
-            self.fill_rect(painter, 44, head_y + 10, 4, 2, "#d88780")
+            self.fill_rect(painter, 42, head_y - 9, 11, 13, "#2d2d32")
+            self.fill_rect(painter, 60, head_y - 9, 11, 13, "#2d2d32")
+            self.fill_rect(painter, 45, head_y - 6, 5, 7, "#a8947e")
+            self.fill_rect(painter, 63, head_y - 6, 5, 7, "#a8947e")
+            self.fill_rect(painter, 38, head_y, 37, 25, "#2d2d32")
+            self.fill_rect(painter, 42, head_y + 3, 29, 19, "#70716d")
+            self.fill_rect(painter, 47, head_y + 2, 5, 8, "#464448")
+            self.fill_rect(painter, 57, head_y, 5, 10, "#464448")
+            self.fill_rect(painter, 66, head_y + 4, 4, 7, "#464448")
+            for x in (47, 60):
+                self.fill_rect(painter, x + 1, head_y + 10, 2, 2, "#2d2d32")
+                self.fill_rect(painter, x + 3, head_y + 12, 3, 2, "#2d2d32")
+                self.fill_rect(painter, x + 6, head_y + 10, 2, 2, "#2d2d32")
+            self.fill_rect(painter, 44, head_y + 14, 20, 7, "#f5f2ea")
+            self.fill_rect(painter, 45, head_y + 14, 4, 3, "#d88780")
 
-            self.fill_rect(painter, 72, 66 + breath, 18, 4, "#fff5e8")
-            self.fill_rect(painter, 76, 70 + breath, 10, 4, "#fff5e8")
-            self.fill_rect(painter, 68, 76 + breath, 8, 6, "#fff5e8")
-            self.fill_rect(painter, 82, 76 + breath, 8, 6, "#fff5e8")
+            for x, y, width, height in (
+                (64, 75, 24, 8),
+                (80, 82, 18, 7),
+                (102, 84, 14, 7),
+            ):
+                self.fill_rect(
+                    painter, x, y + breath, width, height, "#2d2d32"
+                )
+            for x, y, width, height in (
+                (66, 76, 20, 5),
+                (82, 83, 14, 4),
+                (104, 85, 10, 4),
+            ):
+                self.fill_rect(
+                    painter, x, y + breath, width, height, "#f5f2ea"
+                )
 
             painter.setPen(QColor("#f5df9a"))
             painter.setFont(QFont("Menlo", 7))
-            painter.drawText(44, 44 - (self.frame // 5) % 5, "z")
-            painter.drawText(54, 37 - (self.frame // 5) % 5, "z")
+            painter.drawText(35, 44 - (self.frame // 5) % 5, "z")
+            painter.drawText(45, 37 - (self.frame // 5) % 5, "z")
+
+        def draw_crouched_cat(
+            self,
+            painter: Any,
+            x: int,
+            y: int,
+            head_offset: int = 0,
+            head_bob: int = 0,
+            looking_down: bool = False,
+        ) -> None:
+            wiggle = (self.frame % 3) * 2
+            self.fill_rect(painter, x + 53, y + 56, 12, 10, "#2d2d32")
+            self.fill_rect(painter, x + 49 - wiggle, y + 52, 10, 8, "#70716d")
+            self.fill_rect(painter, x + 56, y + 54, 38, 24, "#2d2d32")
+            self.fill_rect(painter, x + 58, y + 56, 34, 20, "#70716d")
+            self.fill_rect(painter, x + 53, y + 58, 10, 8, "#2d2d32")
+            self.fill_rect(painter, x + 54, y + 60, 7, 4, "#70716d")
+            for stripe_x, stripe_y, width, height in (
+                (62, 59, 5, 7),
+                (73, 56, 4, 8),
+                (83, 59, 5, 7),
+                (67, 68, 5, 6),
+                (80, 68, 4, 6),
+            ):
+                self.fill_rect(
+                    painter,
+                    x + stripe_x,
+                    y + stripe_y,
+                    width,
+                    height,
+                    "#464448",
+                )
+            self.fill_rect(painter, x + 61, y + 58, 3, 4, "#a49b8b")
+            self.fill_rect(painter, x + 77, y + 57, 3, 4, "#a49b8b")
+
+            head_x = x + 88 + head_offset
+            head_y = y + 52 + head_bob
+            self.fill_rect(painter, head_x, head_y, 24, 21, "#2d2d32")
+            self.fill_rect(painter, head_x + 2, head_y + 2, 20, 17, "#70716d")
+            self.fill_rect(painter, head_x + 2, head_y - 3, 9, 9, "#2d2d32")
+            self.fill_rect(painter, head_x + 16, head_y - 3, 9, 9, "#2d2d32")
+            self.fill_rect(painter, head_x + 4, head_y, 5, 4, "#a8947e")
+            self.fill_rect(painter, head_x + 18, head_y, 5, 4, "#a8947e")
+            self.fill_rect(painter, head_x + 8, head_y + 2, 4, 6, "#464448")
+            self.fill_rect(painter, head_x + 13, head_y + 1, 4, 7, "#464448")
+            eye_y = head_y + (9 if looking_down else 7)
+            eye_height = 3 if looking_down else 5
+            self.fill_rect(
+                painter, head_x + 4, eye_y, 6, eye_height, "#b8b66c"
+            )
+            self.fill_rect(
+                painter, head_x + 15, eye_y, 6, eye_height, "#b8b66c"
+            )
+            pupil_y = eye_y + (1 if looking_down else 0)
+            pupil_height = 2 if looking_down else 5
+            self.fill_rect(
+                painter, head_x + 6, pupil_y, 2, pupil_height, "#2d2d32"
+            )
+            self.fill_rect(
+                painter, head_x + 17, pupil_y, 2, pupil_height, "#2d2d32"
+            )
+            self.fill_rect(painter, head_x + 9, head_y + 12, 10, 5, "#f5f2ea")
+            self.fill_rect(painter, head_x + 12, head_y + 11, 4, 3, "#d88780")
+            self.fill_rect(painter, head_x + 3, head_y + 15, 20, 5, "#f5f2ea")
+
+            for paw_x in (x + 64, x + 79):
+                self.fill_rect(painter, paw_x, y + 72, 9, 8, "#2d2d32")
+                self.fill_rect(
+                    painter, paw_x + 2, y + 72, 5, 6, "#f5f2ea"
+                )
 
         def draw_litter_scene(self, painter: Any) -> None:
             self.fill_rect(painter, 0, 0, 160, 110, "#e7d7bb")
@@ -645,26 +808,28 @@ def create_cat_animation_widget(
                 sand_y = 82 + ((self.frame + index * 2) % 4) * 2
                 self.fill_rect(painter, sand_x, sand_y, 2, 2, "#f5e4bd")
 
-            wiggle = (self.frame % 3) * 2
-            self.fill_rect(painter, 53, 58, 8, 6, "#382b34")
-            self.fill_rect(painter, 49 - wiggle, 52, 8, 8, "#b8794e")
-            self.fill_rect(painter, 56, 54, 38, 24, "#382b34")
-            self.fill_rect(painter, 58, 56, 34, 20, "#b8794e")
-            self.fill_rect(painter, 62, 60, 6, 4, "#704438")
-            self.fill_rect(painter, 78, 58, 7, 4, "#704438")
-            self.fill_rect(painter, 88, 52, 24, 20, "#382b34")
-            self.fill_rect(painter, 90, 54, 20, 16, "#b8794e")
-            self.fill_rect(painter, 90, 50, 8, 8, "#382b34")
-            self.fill_rect(painter, 104, 50, 8, 8, "#382b34")
-            self.fill_rect(painter, 92, 52, 4, 4, "#d89a68")
-            self.fill_rect(painter, 106, 52, 4, 4, "#d89a68")
-            self.fill_rect(painter, 100, 60, 4, 4, "#fff5e8")
-            self.fill_rect(painter, 88, 68, 22, 4, "#fff5e8")
-            self.fill_rect(painter, 92, 72, 14, 4, "#fff5e8")
-            self.fill_rect(painter, 64, 72, 8, 8, "#382b34")
-            self.fill_rect(painter, 80, 72, 8, 8, "#382b34")
-            self.fill_rect(painter, 66, 72, 4, 6, "#fff5e8")
-            self.fill_rect(painter, 82, 72, 4, 6, "#fff5e8")
+            self.draw_crouched_cat(painter, 0, 0)
+
+        def draw_eating_scene(self, painter: Any) -> None:
+            self.fill_rect(painter, 0, 0, 160, 110, "#e7d7bb")
+            self.fill_rect(painter, 0, 78, 160, 32, "#c7a982")
+            self.fill_rect(painter, 79, 82, 76, 20, "#d8c69b")
+            self.fill_rect(painter, 100, 71, 51, 21, "#2d2d32")
+            self.fill_rect(painter, 103, 74, 45, 14, "#709294")
+            self.fill_rect(painter, 103, 72, 45, 4, "#f5f2ea")
+            self.fill_rect(painter, 115, 77, 22, 6, "#d69b58")
+            for x, y in ((118, 78), (126, 80), (134, 77)):
+                self.fill_rect(painter, x, y, 2, 2, "#f2d18a")
+
+            head_bob = 8 + (self.frame // 3) % 2
+            self.draw_crouched_cat(
+                painter,
+                0,
+                0,
+                head_offset=6,
+                head_bob=head_bob,
+                looking_down=True,
+            )
 
         def draw_writing_scene(self, painter: Any) -> None:
             self.fill_rect(painter, 0, 0, 160, 110, "#d8c8b3")
@@ -684,6 +849,7 @@ def create_cat_animation_widget(
             background = {
                 "idle": "#3c3650",
                 "toilet": "#e7d7bb",
+                "eating": "#e7d7bb",
                 "writing": "#d8c8b3",
             }.get(self.mood, "#292943")
             painter.fillRect(self.rect(), QColor(background))
@@ -697,6 +863,8 @@ def create_cat_animation_widget(
                 self.draw_nap_scene(painter)
             elif self.mood == "toilet":
                 self.draw_litter_scene(painter)
+            elif self.mood == "eating":
+                self.draw_eating_scene(painter)
             elif self.mood == "writing":
                 self.draw_writing_scene(painter)
             else:
@@ -708,6 +876,7 @@ def create_cat_animation_widget(
                 "idle": "核桃 · 猫窝里睡成牛角包",
                 "alert": "核桃 · 有新消息",
                 "toilet": "核桃 · 猫砂时间",
+                "eating": "核桃 · 低头干饭",
                 "window": "核桃 · 看车车",
                 "writing": "核桃 · 敲键盘",
                 "groom": "核桃 · 洗脸休息",
@@ -719,11 +888,53 @@ def create_cat_animation_widget(
     return PixelCatScene()
 
 
+def create_application_icon(
+    QColor: Any,
+    QIcon: Any,
+    QPainter: Any,
+    QPixmap: Any,
+) -> Any:
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(QColor("#3c3650"))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+    def pixel(x: int, y: int, width: int, height: int, color: str) -> None:
+        painter.fillRect(x, y, width, height, QColor(color))
+
+    dark = "#2d2d32"
+    fur = "#70716d"
+    stripe = "#464448"
+    white = "#fff5e8"
+
+    pixel(12, 8, 16, 16, dark)
+    pixel(36, 8, 16, 16, dark)
+    pixel(16, 12, 8, 8, "#a8947e")
+    pixel(40, 12, 8, 8, "#a8947e")
+    pixel(8, 16, 48, 40, dark)
+    pixel(12, 20, 40, 32, fur)
+    pixel(18, 20, 8, 8, stripe)
+    pixel(28, 16, 8, 12, stripe)
+    pixel(38, 20, 8, 8, stripe)
+    pixel(18, 30, 10, 8, "#b8b66c")
+    pixel(36, 30, 10, 8, "#b8b66c")
+    pixel(21, 30, 4, 8, dark)
+    pixel(39, 30, 4, 8, dark)
+    pixel(20, 38, 24, 8, white)
+    pixel(30, 36, 4, 4, "#e5bc91")
+    pixel(16, 40, 8, 4, "#a49b8b")
+    pixel(40, 40, 8, 4, "#a49b8b")
+    pixel(18, 48, 28, 8, white)
+    pixel(28, 56, 8, 8, white)
+    painter.end()
+    return QIcon(pixmap)
+
+
 class ActivityWindow:
     def __init__(self) -> None:
         try:
             from PySide6.QtCore import QTimer, Qt
-            from PySide6.QtGui import QColor, QFont, QPainter
+            from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
             from PySide6.QtWidgets import (
                 QApplication,
                 QHBoxLayout,
@@ -741,8 +952,16 @@ class ActivityWindow:
             ) from error
 
         self.app = QApplication.instance() or QApplication(sys.argv[:1])
+        application_name = "核桃 Copilot Tracker"
+        self.app.setApplicationName(application_name)
+        self.app.setApplicationDisplayName(application_name)
+        application_icon = create_application_icon(
+            QColor, QIcon, QPainter, QPixmap
+        )
+        self.app.setWindowIcon(application_icon)
         self.root = QMainWindow()
-        self.root.setWindowTitle("Copilot 动态")
+        self.root.setWindowTitle(application_name)
+        self.root.setWindowIcon(application_icon)
         self.root.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -768,7 +987,7 @@ class ActivityWindow:
         self.pages = QStackedWidget()
         self.pages.addWidget(output)
         self.cat_scene = create_cat_animation_widget(
-            QWidget, QColor, QPainter, QTimer, QFont
+            QWidget, QLabel, Qt, QColor, QPainter, QTimer, QFont
         )
 
         self.log_button = QPushButton("日志")
@@ -780,6 +999,9 @@ class ActivityWindow:
         self.cat_button.clicked.connect(lambda _checked=False: self.show_page(1))
         self.minimize_button = QPushButton("−")
         self.close_button = QPushButton("×")
+        self.summary_button = QPushButton("隐藏摘要")
+        self.summary_button.setToolTip("隐藏动画顶部的活动摘要")
+        self.summary_button.clicked.connect(self.toggle_activity_summary)
         self.minimize_button.setToolTip("最小化")
         self.close_button.setToolTip("关闭")
         self.minimize_button.clicked.connect(self.root.showMinimized)
@@ -828,6 +1050,7 @@ class ActivityWindow:
         toolbar_layout.addWidget(DragLabel(toolbar), stretch=1)
         toolbar_layout.addWidget(self.log_button)
         toolbar_layout.addWidget(self.cat_button)
+        toolbar_layout.addWidget(self.summary_button)
         toolbar_layout.addWidget(self.minimize_button)
         toolbar_layout.addWidget(self.close_button)
         toolbar.setStyleSheet(
@@ -854,14 +1077,9 @@ class ActivityWindow:
         cat_page = QWidget()
         cat_layout = QVBoxLayout(cat_page)
         cat_layout.setContentsMargins(2, 2, 2, 2)
+        cat_layout.setSpacing(0)
         cat_layout.addWidget(self.cat_scene, stretch=1)
-        self.activity_summary = QLabel("等待 Copilot 活动")
-        self.activity_summary.setWordWrap(True)
-        self.activity_summary.setStyleSheet(
-            "padding: 6px 8px; color: #382b34; background: #fff5e8; "
-            "border-radius: 4px; font-size: 13px;"
-        )
-        cat_layout.addWidget(self.activity_summary)
+        self.cat_scene.set_summary("等待 Copilot 活动")
         self.pages.addWidget(cat_page)
         layout.addWidget(self.pages)
         self.root.setCentralWidget(content)
@@ -896,12 +1114,19 @@ class ActivityWindow:
         self.log_button.setChecked(index == 0)
         self.cat_button.setChecked(index == 1)
 
+    def toggle_activity_summary(self) -> None:
+        visible = not self.cat_scene.summary_visible
+        self.cat_scene.set_summary_visible(visible)
+        self.summary_button.setText("隐藏摘要" if visible else "显示摘要")
+        action = "隐藏" if visible else "显示"
+        self.summary_button.setToolTip(f"{action}动画顶部的活动摘要")
+
     def append(self, message: str) -> None:
         self.output.appendPlainText(message)
 
     def set_activity(self, mood: str, summary: str) -> None:
         self.cat_scene.queue_activity(mood)
-        self.activity_summary.setText(summary)
+        self.cat_scene.set_summary(summary)
 
     def run(self, tick: Callable[[], None], interval_ms: int) -> None:
         from PySide6.QtCore import QTimer
