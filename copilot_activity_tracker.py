@@ -436,6 +436,8 @@ def create_cat_animation_widget(
     class PixelCatScene(QWidget):
         def __init__(self) -> None:
             super().__init__()
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.setAutoFillBackground(False)
             self.mood = "idle"
             self.frame = 0
             self.started_at = time.monotonic()
@@ -478,7 +480,11 @@ def create_cat_animation_widget(
             if self.width() <= 0 or self.height() <= 0:
                 return
             margin = min(12, max(6, self.width() // 10))
-            self.summary_overlay.setMaximumWidth(self.width() - 2 * margin)
+            maximum_width = self.width() - 2 * margin
+            self.summary_overlay.setMinimumWidth(
+                min(maximum_width, max(120, self.width() // 3))
+            )
+            self.summary_overlay.setMaximumWidth(maximum_width)
             self.summary_overlay.setMaximumHeight(max(32, self.height() // 3))
             self.summary_overlay.adjustSize()
             self.summary_overlay.move(
@@ -846,13 +852,13 @@ def create_cat_animation_widget(
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
-            background = {
-                "idle": "#3c3650",
-                "toilet": "#e7d7bb",
-                "eating": "#e7d7bb",
-                "writing": "#d8c8b3",
-            }.get(self.mood, "#292943")
-            painter.fillRect(self.rect(), QColor(background))
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_Source
+            )
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver
+            )
             scale = max(0.1, min(self.width() / 160, self.height() / 110))
             painter.translate(
                 (self.width() - 160 * scale) / 2,
@@ -886,6 +892,117 @@ def create_cat_animation_widget(
             painter.drawText(8, 105, captions.get(self.mood, "核桃"))
 
     return PixelCatScene()
+
+
+def create_realistic_cat_widget(
+    QWidget: Any,
+    QLabel: Any,
+    Qt: Any,
+    QColor: Any,
+    QPainter: Any,
+    QPixmap: Any,
+) -> Any:
+    class RealisticCatScene(QWidget):
+        def __init__(self) -> None:
+            super().__init__()
+            asset_directory = Path(__file__).resolve().parent / "assets" / "realistic"
+            self.photos: dict[str, Any] = {}
+            for mood, filename in (
+                ("idle", "sleeping.png"),
+                ("awake", "awake.png"),
+                ("eating", "eating.jpg"),
+                ("toilet", "toilet.jpg"),
+                ("window", "window.jpg"),
+                ("writing", "writing.jpg"),
+            ):
+                photo_path = asset_directory / filename
+                photo = QPixmap(str(photo_path))
+                if photo.isNull():
+                    raise RuntimeError(f"无法加载写实风核桃照片: {photo_path}")
+                self.photos[mood] = photo
+
+            self.mood = "idle"
+            self.summary_visible = True
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.setAutoFillBackground(False)
+            self.summary_overlay = QLabel("等待 Copilot 活动", self)
+            self.summary_overlay.setWordWrap(True)
+            self.summary_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.summary_overlay.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents
+            )
+            self.summary_overlay.setAttribute(
+                Qt.WidgetAttribute.WA_StyledBackground
+            )
+            self.summary_overlay.setStyleSheet(
+                "color: #fffaf0; background-color: rgba(42, 42, 57, 190); "
+                "border: 1px solid rgba(255, 245, 232, 90); "
+                "border-radius: 8px; padding: 5px 10px; font-size: 13px;"
+            )
+            self.setMinimumSize(120, 82)
+            self.position_summary_overlay()
+
+        def set_summary(self, summary: str) -> None:
+            self.summary_overlay.setText(summary)
+            self.position_summary_overlay()
+            if self.summary_visible:
+                self.summary_overlay.show()
+
+        def set_mood(self, mood: str) -> None:
+            if mood != self.mood:
+                self.mood = mood
+                self.update()
+
+        def set_summary_visible(self, visible: bool) -> None:
+            self.summary_visible = visible
+            self.summary_overlay.setVisible(visible)
+            if visible:
+                self.position_summary_overlay()
+
+        def position_summary_overlay(self) -> None:
+            if self.width() <= 0 or self.height() <= 0:
+                return
+            margin = min(12, max(6, self.width() // 10))
+            maximum_width = self.width() - 2 * margin
+            self.summary_overlay.setMinimumWidth(
+                min(maximum_width, max(120, self.width() // 3))
+            )
+            self.summary_overlay.setMaximumWidth(maximum_width)
+            self.summary_overlay.setMaximumHeight(max(32, self.height() // 3))
+            self.summary_overlay.adjustSize()
+            self.summary_overlay.move(
+                max(0, (self.width() - self.summary_overlay.width()) // 2),
+                8,
+            )
+            self.summary_overlay.raise_()
+
+        def resizeEvent(self, event: Any) -> None:
+            super().resizeEvent(event)
+            self.position_summary_overlay()
+
+        def paintEvent(self, event: Any) -> None:
+            del event
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_Source
+            )
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver
+            )
+            photo = self.photos.get(self.mood, self.photos["awake"])
+            bounds = self.rect().adjusted(8, 8, -8, -8)
+            scaled_photo = photo.scaled(
+                bounds.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = bounds.x() + (bounds.width() - scaled_photo.width()) // 2
+            y = bounds.y() + (bounds.height() - scaled_photo.height()) // 2
+            painter.drawPixmap(x, y, scaled_photo)
+
+    return RealisticCatScene()
 
 
 def create_application_icon(
@@ -938,6 +1055,7 @@ class ActivityWindow:
             from PySide6.QtWidgets import (
                 QApplication,
                 QHBoxLayout,
+                QComboBox,
                 QLabel,
                 QMainWindow,
                 QPlainTextEdit,
@@ -966,6 +1084,8 @@ class ActivityWindow:
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
+        self.root.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.root.setStyleSheet("QMainWindow { background: transparent; }")
         screen = self.app.primaryScreen()
         if screen is not None:
             available = screen.availableGeometry()
@@ -982,26 +1102,31 @@ class ActivityWindow:
         output = QPlainTextEdit()
         output.setReadOnly(True)
         output.document().setMaximumBlockCount(500)
+        output.setStyleSheet(
+            "QPlainTextEdit { background: transparent; border: none; "
+            "color: #382b34; }"
+        )
         self.output = output
 
         self.pages = QStackedWidget()
+        self.pages.setStyleSheet("QStackedWidget { background: transparent; }")
         self.pages.addWidget(output)
         self.cat_scene = create_cat_animation_widget(
             QWidget, QLabel, Qt, QColor, QPainter, QTimer, QFont
         )
+        self.realistic_scene = create_realistic_cat_widget(
+            QWidget, QLabel, Qt, QColor, QPainter, QPixmap
+        )
 
-        self.log_button = QPushButton("日志")
-        self.cat_button = QPushButton("动画")
-        self.log_button.setCheckable(True)
-        self.cat_button.setCheckable(True)
-        self.log_button.setChecked(True)
-        self.log_button.clicked.connect(lambda _checked=False: self.show_page(0))
-        self.cat_button.clicked.connect(lambda _checked=False: self.show_page(1))
+        self.view_selector = QComboBox()
+        self.view_selector.addItems(("日志", "动画", "写实风"))
+        self.view_selector.currentIndexChanged.connect(self.show_page)
         self.minimize_button = QPushButton("−")
         self.close_button = QPushButton("×")
         self.summary_button = QPushButton("隐藏摘要")
-        self.summary_button.setToolTip("隐藏动画顶部的活动摘要")
+        self.summary_button.setToolTip("隐藏图像顶部的活动摘要")
         self.summary_button.clicked.connect(self.toggle_activity_summary)
+        self.summary_button.hide()
         self.minimize_button.setToolTip("最小化")
         self.close_button.setToolTip("关闭")
         self.minimize_button.clicked.connect(self.root.showMinimized)
@@ -1048,18 +1173,19 @@ class ActivityWindow:
         toolbar_layout.setContentsMargins(8, 4, 6, 4)
         toolbar_layout.setSpacing(5)
         toolbar_layout.addWidget(DragLabel(toolbar), stretch=1)
-        toolbar_layout.addWidget(self.log_button)
-        toolbar_layout.addWidget(self.cat_button)
+        toolbar_layout.addWidget(self.view_selector)
         toolbar_layout.addWidget(self.summary_button)
         toolbar_layout.addWidget(self.minimize_button)
         toolbar_layout.addWidget(self.close_button)
         toolbar.setStyleSheet(
-            "QWidget#hoverToolbar { background: #eee3d2; "
-            "border-bottom: 1px solid #c8b49a; }"
-            "QPushButton { background: #f8f1e7; color: #382b34; "
+            "QWidget#hoverToolbar { background: rgba(238, 227, 210, 220); "
+            "border-bottom: 1px solid rgba(200, 180, 154, 180); }"
+            "QPushButton, QComboBox { background: rgba(248, 241, 231, 220); "
+            "color: #382b34; "
             "border: 1px solid #bba58c; border-radius: 5px; padding: 3px 8px; }"
-            "QPushButton:checked { background: #d7b48c; }"
-            "QPushButton#closeButton { background: #d97b69; color: white; }"
+            "QComboBox::drop-down { border: 0; width: 18px; }"
+            "QPushButton#closeButton { background: rgba(217, 123, 105, 230); "
+            "color: white; }"
         )
         self.close_button.setObjectName("closeButton")
         self.toolbar = toolbar
@@ -1067,20 +1193,34 @@ class ActivityWindow:
         content = QWidget()
         content.setObjectName("windowContent")
         content.setStyleSheet(
-            "#windowContent { background: #f3eadc; "
-            "border: 1px solid #9c8068; border-radius: 8px; }"
+            "#windowContent { background: transparent; border: none; }"
         )
+        content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        content.setAutoFillBackground(False)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(toolbar)
         cat_page = QWidget()
+        cat_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        cat_page.setAutoFillBackground(False)
+        cat_page.setStyleSheet("background: transparent;")
         cat_layout = QVBoxLayout(cat_page)
         cat_layout.setContentsMargins(2, 2, 2, 2)
         cat_layout.setSpacing(0)
         cat_layout.addWidget(self.cat_scene, stretch=1)
         self.cat_scene.set_summary("等待 Copilot 活动")
         self.pages.addWidget(cat_page)
+        realistic_page = QWidget()
+        realistic_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        realistic_page.setAutoFillBackground(False)
+        realistic_page.setStyleSheet("background: transparent;")
+        realistic_layout = QVBoxLayout(realistic_page)
+        realistic_layout.setContentsMargins(2, 2, 2, 2)
+        realistic_layout.setSpacing(0)
+        realistic_layout.addWidget(self.realistic_scene, stretch=1)
+        self.realistic_scene.set_summary("等待 Copilot 活动")
+        self.pages.addWidget(realistic_page)
         layout.addWidget(self.pages)
         self.root.setCentralWidget(content)
 
@@ -1096,6 +1236,10 @@ class ActivityWindow:
         self.hover_timer.timeout.connect(self.update_hover_controls)
         self.hover_timer.start(100)
         self.root.show()
+        self.last_realistic_mood = self.cat_scene.mood
+        self.realistic_sync_timer = QTimer(self.root)
+        self.realistic_sync_timer.timeout.connect(self.sync_realistic_mood)
+        self.realistic_sync_timer.start(180)
 
     def update_hover_controls(self) -> None:
         from PySide6.QtGui import QCursor
@@ -1111,15 +1255,22 @@ class ActivityWindow:
 
     def show_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
-        self.log_button.setChecked(index == 0)
-        self.cat_button.setChecked(index == 1)
+        if self.view_selector.currentIndex() != index:
+            self.view_selector.setCurrentIndex(index)
+        self.summary_button.setVisible(index != 0)
 
     def toggle_activity_summary(self) -> None:
         visible = not self.cat_scene.summary_visible
         self.cat_scene.set_summary_visible(visible)
+        self.realistic_scene.set_summary_visible(visible)
         self.summary_button.setText("隐藏摘要" if visible else "显示摘要")
         action = "隐藏" if visible else "显示"
-        self.summary_button.setToolTip(f"{action}动画顶部的活动摘要")
+        self.summary_button.setToolTip(f"{action}图像顶部的活动摘要")
+
+    def sync_realistic_mood(self) -> None:
+        if self.cat_scene.mood != self.last_realistic_mood:
+            self.last_realistic_mood = self.cat_scene.mood
+            self.realistic_scene.set_mood(self.last_realistic_mood)
 
     def append(self, message: str) -> None:
         self.output.appendPlainText(message)
@@ -1127,6 +1278,7 @@ class ActivityWindow:
     def set_activity(self, mood: str, summary: str) -> None:
         self.cat_scene.queue_activity(mood)
         self.cat_scene.set_summary(summary)
+        self.realistic_scene.set_summary(summary)
 
     def run(self, tick: Callable[[], None], interval_ms: int) -> None:
         from PySide6.QtCore import QTimer
